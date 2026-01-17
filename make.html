@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>링크 생성기 (뉴스 → go.html)</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;max-width:900px;margin:32px auto;padding:0 16px;line-height:1.5}
+    h1{font-size:22px;margin:0 0 12px}
+    .card{border:1px solid #e5e7eb;border-radius:14px;padding:16px;margin:12px 0}
+    label{display:block;font-weight:700;margin:12px 0 6px}
+    input, textarea, select{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;font-size:14px}
+    textarea{min-height:88px;resize:vertical}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .row > div{flex:1 1 240px}
+    .btns{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+    button{padding:10px 12px;border-radius:10px;border:1px solid #111;background:#111;color:#fff;cursor:pointer}
+    button.secondary{background:#fff;color:#111}
+    .small{color:#6b7280;font-size:13px}
+    .ok{color:#047857;font-weight:700}
+    .err{color:#b91c1c;font-weight:700}
+    code{background:#f3f4f6;padding:2px 6px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <h1>Threads용 링크 생성기</h1>
+  <p class="small">
+    뉴스 URL을 넣으면 <code>go.html?n=...&c=...&t=...</code> 형태의 “완성 링크(인코딩 포함)”를 자동 생성합니다.
+  </p>
+
+  <div class="card">
+    <div class="row">
+      <div>
+        <label>쿠팡 파트너스 링크 (한 번만 넣고 저장 가능)</label>
+        <input id="coupang" placeholder="https://link.coupang.com/a/xxxxxx" />
+        <div class="small">
+          ✅ 아래 “쿠팡 링크 저장” 누르면 브라우저에 기억됩니다(로컬 저장).
+        </div>
+      </div>
+
+      <div>
+        <label>지연 시간 (ms)</label>
+        <select id="delay">
+          <option value="1000">1초 (1000)</option>
+          <option value="2000">2초 (2000)</option>
+          <option value="3000" selected>3초 (3000)</option>
+          <option value="5000">5초 (5000)</option>
+        </select>
+        <div class="small">기본값 3초 추천</div>
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="secondary" id="saveCoupang">쿠팡 링크 저장</button>
+      <button class="secondary" id="clearCoupang">저장 삭제</button>
+      <span id="status" class="small"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <label>뉴스 기사 URL (매번 바꿔 넣는 것)</label>
+    <textarea id="news" placeholder="https://news.kbs.co.kr/news/pc/view/view.do?ncd=8461785"></textarea>
+
+    <div class="btns">
+      <button id="make">완성 링크 만들기</button>
+      <button class="secondary" id="open">완성 링크 열기</button>
+      <button class="secondary" id="copy">복사</button>
+    </div>
+
+    <label>완성 링크</label>
+    <textarea id="out" readonly placeholder="여기에 완성 링크가 생성됩니다."></textarea>
+    <div class="small">
+      Threads 댓글에는 위 “완성 링크”만 붙이면 됩니다.
+    </div>
+  </div>
+
+  <div class="card small">
+    <div><b>참고</b></div>
+    <div>• 이 생성기는 URL을 자동으로 인코딩해서 <code>&</code> 때문에 깨지는 문제를 막습니다.</div>
+    <div>• 뉴스 새 탭 열림은 브라우저/Threads 인앱브라우저 정책에 따라 차단될 수 있습니다.</div>
+  </div>
+
+  <script>
+    // go.html 기준 주소(현재 저장소 내)
+    const GO_URL = new URL("./go.html", location.href).toString().replace("make.html", "go.html");
+
+    const $ = (id) => document.getElementById(id);
+    const coupangEl = $("coupang");
+    const delayEl = $("delay");
+    const newsEl = $("news");
+    const outEl = $("out");
+    const statusEl = $("status");
+
+    function setStatus(msg, kind="ok"){
+      statusEl.className = "small " + (kind==="ok" ? "ok" : "err");
+      statusEl.textContent = msg;
+      setTimeout(() => statusEl.textContent = "", 2500);
+    }
+
+    function isHttpUrl(u){
+      try {
+        const x = new URL(u.trim());
+        return x.protocol === "https:" || x.protocol === "http:";
+      } catch { return false; }
+    }
+
+    // 로컬 저장 불러오기
+    const saved = localStorage.getItem("linkgate_coupang") || "";
+    if (saved) coupangEl.value = saved;
+
+    $("saveCoupang").addEventListener("click", () => {
+      const v = coupangEl.value.trim();
+      if (!isHttpUrl(v)) return setStatus("쿠팡 링크가 올바르지 않습니다(https/http).", "err");
+      localStorage.setItem("linkgate_coupang", v);
+      setStatus("쿠팡 링크 저장 완료");
+    });
+
+    $("clearCoupang").addEventListener("click", () => {
+      localStorage.removeItem("linkgate_coupang");
+      coupangEl.value = "";
+      setStatus("저장 삭제 완료");
+    });
+
+    function buildUrl(){
+      const n = newsEl.value.trim();
+      const c = coupangEl.value.trim();
+      const t = delayEl.value;
+
+      if (!isHttpUrl(n)) throw new Error("뉴스 URL이 올바르지 않습니다(https/http).");
+      if (!isHttpUrl(c)) throw new Error("쿠팡 URL이 올바르지 않습니다(https/http).");
+
+      const qs =
+        "?n=" + encodeURIComponent(n) +
+        "&c=" + encodeURIComponent(c) +
+        "&t=" + encodeURIComponent(t);
+
+      return GO_URL + qs;
+    }
+
+    $("make").addEventListener("click", () => {
+      try {
+        const url = buildUrl();
+        outEl.value = url;
+        setStatus("완성 링크 생성 완료");
+      } catch (e) {
+        setStatus(e.message || "생성 실패", "err");
+      }
+    });
+
+    $("open").addEventListener("click", () => {
+      if (!outEl.value.trim()) {
+        try { outEl.value = buildUrl(); } catch (e) { return setStatus(e.message, "err"); }
+      }
+      window.open(outEl.value.trim(), "_blank", "noopener,noreferrer");
+    });
+
+    $("copy").addEventListener("click", async () => {
+      const txt = outEl.value.trim() || "";
+      if (!txt) return setStatus("먼저 ‘완성 링크 만들기’를 눌러주세요.", "err");
+      try {
+        await navigator.clipboard.writeText(txt);
+        setStatus("복사 완료");
+      } catch {
+        // clipboard 막힐 때 대비
+        outEl.focus();
+        outEl.select();
+        document.execCommand("copy");
+        setStatus("복사 완료(대체 방식)");
+      }
+    });
+  </script>
+</body>
+</html>
